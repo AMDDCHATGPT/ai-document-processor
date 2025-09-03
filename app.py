@@ -113,6 +113,89 @@ def load_openai_client():
         st.error("OpenAI package not installed")
         return None
 
+# Enhanced Excel file processing function
+def process_excel_file(file_path):
+    """Process Excel files (.xlsx and .xls) and convert to text"""
+    try:
+        file_ext = os.path.splitext(file_path)[1].lower()
+        text_content = []
+        
+        if file_ext == '.xlsx':
+            try:
+                # Try openpyxl first (for .xlsx files)
+                import openpyxl
+                workbook = openpyxl.load_workbook(file_path, data_only=True)
+                
+                for sheet_name in workbook.sheetnames:
+                    sheet = workbook[sheet_name]
+                    text_content.append(f"\n=== Sheet: {sheet_name} ===\n")
+                    
+                    # Process rows and columns
+                    for row_idx, row in enumerate(sheet.iter_rows(values_only=True), 1):
+                        row_text = []
+                        for cell_idx, cell in enumerate(row, 1):
+                            if cell is not None and str(cell).strip():
+                                # Include column letter for better context
+                                col_letter = openpyxl.utils.get_column_letter(cell_idx)
+                                row_text.append(f"{col_letter}{row_idx}: {str(cell).strip()}")
+                        
+                        if row_text:
+                            text_content.append(" | ".join(row_text))
+                    
+                    text_content.append("\n")  # Add space between sheets
+                    
+            except ImportError:
+                # Fallback to pandas if openpyxl is not available
+                try:
+                    excel_file = pd.ExcelFile(file_path)
+                    for sheet_name in excel_file.sheet_names:
+                        df = pd.read_excel(file_path, sheet_name=sheet_name)
+                        text_content.append(f"\n=== Sheet: {sheet_name} ===\n")
+                        
+                        # Convert DataFrame to text
+                        for idx, row in df.iterrows():
+                            row_text = []
+                            for col_name, value in row.items():
+                                if pd.notna(value) and str(value).strip():
+                                    row_text.append(f"{col_name}: {str(value).strip()}")
+                            
+                            if row_text:
+                                text_content.append(" | ".join(row_text))
+                        
+                        text_content.append("\n")
+                        
+                except Exception as pandas_error:
+                    return f"Error processing .xlsx file: {str(pandas_error)}\nPlease install openpyxl: pip install openpyxl"
+                            
+        elif file_ext == '.xls':
+            try:
+                # For .xls files, use pandas or xlrd
+                excel_file = pd.ExcelFile(file_path)
+                for sheet_name in excel_file.sheet_names:
+                    df = pd.read_excel(file_path, sheet_name=sheet_name)
+                    text_content.append(f"\n=== Sheet: {sheet_name} ===\n")
+                    
+                    # Convert DataFrame to text
+                    for idx, row in df.iterrows():
+                        row_text = []
+                        for col_name, value in row.items():
+                            if pd.notna(value) and str(value).strip():
+                                row_text.append(f"{col_name}: {str(value).strip()}")
+                        
+                        if row_text:
+                            text_content.append(" | ".join(row_text))
+                    
+                    text_content.append("\n")
+                    
+            except Exception as e:
+                return f"Error processing .xls file: {str(e)}\nPlease install xlrd: pip install xlrd"
+        
+        return "\n".join(text_content)
+        
+    except Exception as e:
+        logger.error(f"Error processing Excel file: {str(e)}")
+        return f"Error processing Excel file: {str(e)}"
+
 # Function to search Hugging Face models
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def search_huggingface_models(query, task_filter=None, library_filter=None, limit=20):
@@ -375,11 +458,11 @@ def get_huggingface_embedding(text, model_name, api_key):
         logger.error(f"Error getting HF embedding: {str(e)}")
         raise e
 
-# FIXED Hugging Face document processing function with flat schema
+# UPDATED Hugging Face document processing function with Excel support
 def process_document_huggingface(uploaded_file, table_name="documents", db_path="./lancedb",
                                 embedding_model="sentence-transformers/all-MiniLM-L6-v2", 
                                 api_key=None, progress_callback=None):
-    """Simple document processing using Hugging Face embeddings - FIXED SCHEMA"""
+    """Document processing using Hugging Face embeddings with Excel support - FIXED SCHEMA"""
     try:
         if progress_callback:
             progress_callback(0.1, "Extracting text from document...")
@@ -417,6 +500,21 @@ def process_document_huggingface(uploaded_file, table_name="documents", db_path=
                     file_text = "\n\n".join(paragraphs)
                 except ImportError:
                     file_text = "python-docx not installed. Cannot process Word documents."
+            
+            elif file_ext == ".html":
+                try:
+                    from bs4 import BeautifulSoup
+                    with open(tmp_path, "r", encoding="utf-8") as f:
+                        soup = BeautifulSoup(f.read(), 'html.parser')
+                        for script in soup(["script", "style"]):
+                            script.decompose()
+                        file_text = soup.get_text()
+                except ImportError:
+                    file_text = "BeautifulSoup not installed. Cannot process HTML files."
+                    
+            elif file_ext in ['.xlsx', '.xls']:
+                # NEW: Excel file processing
+                file_text = process_excel_file(tmp_path)
                     
             else:
                 try:
@@ -813,8 +911,8 @@ with st.sidebar:
         # Popular models quick select
         st.markdown("**🚀 Popular Models (Quick Select)**")
         popular_models = [
-            "microsoft/DialoGPT-medium",
-            "microsoft/DialoGPT-small",
+            "meta-llama/Llama-3.3-70B-Instruct",
+            "zai-org/GLM-4.5",
             "facebook/blenderbot-400M-distill",
             "HuggingFaceH4/zephyr-7b-beta",
             "mistralai/Mistral-7B-Instruct-v0.1",
@@ -834,6 +932,13 @@ with tab1:
     st.header("Process & Create Embeddings")
     st.markdown(f"""
     Upload a file to process, chunk, and create embeddings using **{st.session_state.api_provider}** models.
+    
+    **📊 Supported file formats:**
+    - 📄 **PDF**: `.pdf`
+    - 📝 **Text**: `.txt`
+    - 📄 **Word**: `.docx`, `.doc`
+    - 🌐 **HTML**: `.html`
+    - 📊 **Excel**: `.xlsx`, `.xls` ⭐ **NEW!**
     """)
     
     col1, col2 = st.columns(2)
@@ -846,31 +951,59 @@ with tab1:
         st.markdown(f"**Embedding Model:** {st.session_state.embedding_model}")
         st.markdown(f"**API Provider:** {st.session_state.api_provider}")
     
-    uploaded_file_embed = st.file_uploader("Choose a file", type=["pdf", "txt", "docx", "html"], key="embed_uploader")
+    # UPDATED: Added xlsx and xls to supported file types
+    uploaded_file_embed = st.file_uploader(
+        "Choose a file", 
+        type=["pdf", "txt", "docx", "doc", "html", "xlsx", "xls"], 
+        key="embed_uploader",
+        help="Upload PDF, TXT, DOCX, HTML, or Excel files (.xlsx, .xls)"
+    )
     
-    if uploaded_file_embed is not None and st.button("Process & Create Embeddings", key="embed_file_button"):
-        current_api_key = get_current_api_key()
-        if not current_api_key:
-            st.error(f"Please enter your {st.session_state.api_provider} API key in the sidebar.")
-        else:
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            def update_progress(progress, message):
-                if progress < 0:
-                    progress_bar.progress(0)
-                    status_text.error(message)
-                    return
-                progress_bar.progress(progress)
-                status_text.text(message)
-            
-            try:
-                if st.session_state.api_provider == "OpenAI":
-                    with st.spinner("Loading OpenAI functions..."):
-                        embedding_funcs = load_embedding_functions()
-                    
-                    if embedding_funcs:
-                        table, num_chunks = embedding_funcs['process_document'](
+    if uploaded_file_embed is not None:
+        file_details = {
+            "Filename": uploaded_file_embed.name,
+            "File type": uploaded_file_embed.type,
+            "File size": f"{uploaded_file_embed.size:,} bytes"
+        }
+        st.json(file_details)
+        
+        if st.button("Process & Create Embeddings", key="embed_file_button"):
+            current_api_key = get_current_api_key()
+            if not current_api_key:
+                st.error(f"Please enter your {st.session_state.api_provider} API key in the sidebar.")
+            else:
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                def update_progress(progress, message):
+                    if progress < 0:
+                        progress_bar.progress(0)
+                        status_text.error(message)
+                        return
+                    progress_bar.progress(progress)
+                    status_text.text(message)
+                
+                try:
+                    if st.session_state.api_provider == "OpenAI":
+                        with st.spinner("Loading OpenAI functions..."):
+                            embedding_funcs = load_embedding_functions()
+                        
+                        if embedding_funcs:
+                            table, num_chunks = embedding_funcs['process_document'](
+                                uploaded_file=uploaded_file_embed,
+                                table_name=table_name,
+                                db_path=db_path,
+                                embedding_model=st.session_state.embedding_model,
+                                api_key=current_api_key,
+                                progress_callback=update_progress
+                            )
+                        else:
+                            st.error("Could not load OpenAI functions")
+                            progress_bar.empty()
+                            st.stop()
+                    else:
+                        # Use UPDATED HuggingFace processing function with Excel support
+                        table, num_chunks = process_document_huggingface(
                             uploaded_file=uploaded_file_embed,
                             table_name=table_name,
                             db_path=db_path,
@@ -878,27 +1011,18 @@ with tab1:
                             api_key=current_api_key,
                             progress_callback=update_progress
                         )
-                    else:
-                        st.error("Could not load OpenAI functions")
-                        progress_bar.empty()
-                        st.stop()
-                else:
-                    # Use FIXED HuggingFace processing function
-                    table, num_chunks = process_document_huggingface(
-                        uploaded_file=uploaded_file_embed,
-                        table_name=table_name,
-                        db_path=db_path,
-                        embedding_model=st.session_state.embedding_model,
-                        api_key=current_api_key,
-                        progress_callback=update_progress
-                    )
-                
-                progress_bar.empty()
-                st.success(f"Document processed successfully! Created {num_chunks} chunks in table '{table_name}'.")
-                
-            except Exception as e:
-                progress_bar.empty()
-                st.error(f"Error during processing: {str(e)}")
+                    
+                    progress_bar.empty()
+                    st.success(f"✅ Document processed successfully! Created {num_chunks} chunks in table '{table_name}'.")
+                    
+                    # Show file type specific success message
+                    file_ext = os.path.splitext(uploaded_file_embed.name)[1].lower()
+                    if file_ext in ['.xlsx', '.xls']:
+                        st.info("📊 Excel file processed! All sheets and their data have been extracted and embedded.")
+                    
+                except Exception as e:
+                    progress_bar.empty()
+                    st.error(f"❌ Error during processing: {str(e)}")
 
 with tab2:
     st.header("Chat")
@@ -1074,7 +1198,10 @@ with tab3:
                         st.subheader(f"Found {len(results)} results")
                         
                         for i, row in results.iterrows():
-                            with st.expander(f"Result {i+1}"):
+                            with st.expander(f"Result {i+1}: {row.get('filename', 'Unknown')}"):
+                                st.markdown(f"**File:** {row.get('filename', 'Unknown')}")
+                                st.markdown(f"**Source:** {row.get('source', 'Unknown')}")
+                                st.markdown("**Content:**")
                                 st.markdown(row["text"])
                                 
                                 if '_distance' in row.index:
@@ -1087,4 +1214,4 @@ with tab3:
 
 # Footer
 st.markdown("---")
-st.markdown(f"🚀 Powered by {st.session_state.api_provider} and LanceDB | Document Processor with Free Model Browser")
+st.markdown(f"🚀 Powered by {st.session_state.api_provider} and LanceDB | Document Processor with Excel Support 📊")
