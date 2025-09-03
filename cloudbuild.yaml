@@ -1,0 +1,37 @@
+steps:
+  # Build the Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/my-repo/my-image:$COMMIT_SHA', '.']
+  
+  # Push the Docker image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/my-repo/my-image:$COMMIT_SHA']
+  
+  # Deploy to Cloud Run
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'my-service'  # Replace with your Cloud Run service name
+      - '--image'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/my-repo/my-image:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'  # Replace with your preferred region
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'  # Remove if you want to require authentication
+
+# Image to store build logs
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+# Substitutions for customization
+substitutions:
+  _SERVICE_NAME: 'my-service'
+  _DEPLOY_REGION: 'us-central1'
+  _REPO_NAME: 'my-repo'
+  _IMAGE_NAME: 'my-image'
+
+# Store the image in Artifact Registry
+images:
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_IMAGE_NAME}:$COMMIT_SHA'
