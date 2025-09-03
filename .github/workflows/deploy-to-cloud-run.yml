@@ -1,0 +1,115 @@
+# # Name of the GitHub Actions workflow that appears in the Actions tab
+# name: Deploy to Google Cloud Run
+
+# # Define when this workflow should be triggered
+# on:
+#   push:
+#     branches: [ main, master ]  # Run when code is pushed to main or master branch
+#   pull_request:
+#     branches: [ main, master ]  # Run when pull requests are created targeting main/master
+#   workflow_dispatch:  # Allow manual triggering of this workflow from GitHub UI
+
+# # Environment variables that will be available to all jobs in this workflow
+# env:
+#   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}  # Google Cloud Project ID from GitHub secrets
+#   GAR_LOCATION: asia-southeast1  # Google Artifact Registry location (US Central region)
+#   SERVICE: ai-document-processor  # Name of the Cloud Run service to deploy
+#   REGION: asia-southeast1  # Google Cloud region where the service will be deployed
+
+# # Define the jobs that will run in this workflow
+# jobs:
+#   deploy:  # Job name
+#     # Required permissions for this job to interact with Google Cloud
+#     permissions:
+#       contents: read  # Permission to read repository contents
+#       id-token: write  # Permission to write ID tokens for workload identity federation
+
+#     # Specify the runner environment (Ubuntu latest version)
+#     runs-on: ubuntu-latest
+    
+#     # Define the sequence of steps this job will execute
+#     steps:
+#       # Step 1: Download the repository code to the runner
+#       - name: Checkout
+#         uses: actions/checkout@v4  # Official GitHub action to checkout repository code
+
+#       # Step 2: Authenticate with Google Cloud using service account credentials
+#       - name: Google Auth
+#         id: auth  # Give this step an ID so other steps can reference it
+#         uses: 'google-github-actions/auth@v2'  # Official Google action for authentication
+#         with:
+#           credentials_json: '${{ secrets.GCP_SA_KEY }}'  # Service account JSON key from GitHub secrets
+
+#       # Step 3: Authenticate with Docker registry (Google Artifact Registry)
+#       - name: Docker Auth
+#         id: docker-auth  # Step ID for reference
+#         uses: 'docker/login-action@v3'  # Official Docker action for registry login
+#         with:
+#           username: _json_key  # Special username for Google Cloud service account
+#           password: ${{ secrets.GCP_SA_KEY }}  # Service account key as password
+#           registry: ${{ env.GAR_LOCATION }}-docker.pkg.dev  # Google Artifact Registry URL
+
+#       # Step 4: Install and configure Google Cloud SDK
+#       - name: Set up Cloud SDK
+#         uses: 'google-github-actions/setup-gcloud@v2'  # Official Google action to setup gcloud CLI
+
+#       # Step 5: Configure Docker to use gcloud as credential helper for authentication
+#       - name: Configure Docker to use gcloud as a credential helper
+#         run: |
+#           # Configure Docker to authenticate with Google Cloud for the specified registry
+#           gcloud auth configure-docker ${{ env.GAR_LOCATION }}-docker.pkg.dev
+
+#       # Step 6: Create Artifact Registry repository if it doesn't exist
+#       - name: Create Artifact Registry repository (if not exists)
+#         run: |
+#           # Create a Docker repository in Google Artifact Registry
+#           # The "|| true" ensures the step doesn't fail if repository already exists
+#           gcloud artifacts repositories create ${{ env.SERVICE }} \
+#             --repository-format=docker \
+#             --location=${{ env.GAR_LOCATION }} \
+#             --description="Docker repository for AI Document Processor" \
+#             --project=${{ env.PROJECT_ID }} || true
+
+#       # Step 7: Build Docker image and push to Google Artifact Registry
+#       - name: Build and Push Container
+#         run: |-
+#           # Build Docker image with a tag that includes the Git commit SHA for versioning
+#           docker build -t "${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.SERVICE }}/${{ env.SERVICE }}:${{ github.sha }}" ./
+#           # Push the built image to Google Artifact Registry
+#           docker push "${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.SERVICE }}/${{ env.SERVICE }}:${{ github.sha }}"
+
+#       # Step 8: Deploy the container to Google Cloud Run
+#       - name: Deploy to Cloud Run
+#         id: deploy  # Step ID to reference deployment outputs
+#         uses: google-github-actions/deploy-cloudrun@v2  # Official Google action for Cloud Run deployment
+#         with:
+#           service: ${{ env.SERVICE }}  # Name of the Cloud Run service
+#           region: ${{ env.REGION }}  # Deployment region
+#           image: ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.SERVICE }}/${{ env.SERVICE }}:${{ github.sha }}  # Image URL with commit SHA tag
+#           # Environment variables to be set in the deployed container
+#           env_vars: |
+#             OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+#             HF_API_KEY=${{ secrets.HF_API_KEY }}
+#           # Cloud Run service configuration flags
+#           flags: |
+#             --port=8501  # Port the container listens on (Streamlit default)
+#             --memory=2Gi  # Memory allocation (2 Gigabytes)
+#             --cpu=1  # CPU allocation (1 vCPU)
+#             --min-instances=0  # Minimum number of instances (can scale to zero)
+#             --max-instances=10  # Maximum number of instances for auto-scaling
+#             --concurrency=80  # Maximum concurrent requests per instance
+#             --timeout=300  # Request timeout in seconds (5 minutes)
+#             --allow-unauthenticated  # Allow public access without authentication
+
+#       # Step 9: Display the deployed service URL
+#       - name: Show Output
+#         run: echo ${{ steps.deploy.outputs.url }}  # Print the URL where the service is accessible
+
+#       # Step 10: Verify that the deployment was successful
+#       - name: Verify deployment
+#         run: |
+#           echo "Service deployed successfully!"  # Success message
+#           echo "URL: ${{ steps.deploy.outputs.url }}"  # Display the service URL
+#           # Attempt to make a health check request (curl -f fails on HTTP errors)
+#           # "|| true" ensures the workflow doesn't fail if health check fails
+#           curl -f ${{ steps.deploy.outputs.url }} || echo "Health check failed, but deployment completed"
