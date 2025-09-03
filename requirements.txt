@@ -1,0 +1,107 @@
+# Core application framework
+streamlit
+
+# Document processing and conversion
+docling
+
+# Database and embeddings
+lancedb
+pandas
+
+# OpenAI integration
+openai
+tiktoken
+
+# Additional ML and data processing
+numpy
+scipy
+
+# Image processing (for document images)
+Pillow
+
+# Environment and configuration
+python-dotenv
+
+# Typing extensions (for better type hints)
+typing-extensions
+
+# HTTP requests (for URL processing)
+requests
+
+# PDF processing (backup for simple PDF extraction)
+PyPDF2
+
+# Text processing
+nltk
+
+# Progress bars and utilities
+tqdm
+
+# Logging and debugging
+rich
+
+# File handling
+pathlib
+
+# JSON handling (usually built-in, but for completeness)
+jsonschema
+
+# Web scraping (if needed for URL content)
+beautifulsoup4
+
+# HTTP client for async operations
+httpx
+
+# Pydantic for data validation (required by LanceDB)
+pydantic
+
+# Arrow for data types in LanceDB
+pyarrow
+
+# Hugging Face Hub (for fallback or hybrid usage)
+huggingface-hub
+
+# Transformers (if needed for tokenization fallbacks)
+transformers
+
+# Sentence transformers (if hybrid approach is needed)
+sentence-transformers
+
+# Additional utilities
+click
+charset-normalizer
+
+# Testing (optional, for development)
+pytest
+pytest-asyncio
+
+# Security
+cryptography
+
+# Memory optimization
+psutil
+
+# File format support
+openpyxl
+python-docx
+
+# Markdown processing
+markdown
+
+# URL parsing
+urllib3
+
+# Time and date handling
+python-dateutil
+
+# Configuration file handling
+configparser
+
+# Regular expressions (built-in, but for completeness)
+regex
+
+# Caching
+diskcache
+
+# Import utilities
+importlib-metadata
